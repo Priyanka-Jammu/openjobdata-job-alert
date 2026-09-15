@@ -9,9 +9,10 @@ on:
 permissions:
   contents: write
 
-# Prevent two job-search runs from writing to main at the same time
+# If you click Run 10 times, they run one after another.
+# Nothing gets cancelled and two runs cannot push at the same time.
 concurrency:
-  group: daily-job-search
+  group: openjobdata-job-search
   cancel-in-progress: false
 
 jobs:
@@ -19,10 +20,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout latest repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -33,11 +35,17 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Get newest main
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+
       - name: Run job search
         run: |
           python job_search.py
 
-      - name: Save job results
+      - name: Update CSV
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -45,12 +53,44 @@ jobs:
           git add new_jobs.csv
 
           if git diff --cached --quiet; then
-            echo "No new job-result changes to commit"
-          else
-            git commit -m "Update daily job results"
-
-            # Bring in anything that changed on main while this workflow ran
-            git pull --rebase origin main
-
-            git push origin HEAD:main
+            echo "new_jobs.csv already contains the latest results."
+            exit 0
           fi
+
+          git commit -m "Update job results"
+
+          # Retry safely if main changed for some other reason
+          for attempt in 1 2 3 4 5
+          do
+            if git push origin HEAD:main; then
+              echo "CSV updated successfully."
+              exit 0
+            fi
+
+            echo "Push conflict. Refreshing main and retrying..."
+
+            git fetch origin main
+
+            # Save the newly generated CSV
+            cp new_jobs.csv /tmp/new_jobs.csv
+
+            # Move to newest main
+            git reset --hard origin/main
+
+            # Restore the new CSV
+            cp /tmp/new_jobs.csv new_jobs.csv
+
+            git add new_jobs.csv
+
+            if git diff --cached --quiet; then
+              echo "Another run already uploaded the same CSV."
+              exit 0
+            fi
+
+            git commit -m "Update job results"
+
+            sleep 3
+          done
+
+          echo "Push failed after 5 attempts."
+          exit 1

@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# Prevent two job-search runs from writing to main at the same time
+concurrency:
+  group: daily-job-search
+  cancel-in-progress: false
+
 jobs:
   search-jobs:
     runs-on: ubuntu-latest
@@ -16,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,8 +45,12 @@ jobs:
           git add new_jobs.csv
 
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No new job-result changes to commit"
           else
             git commit -m "Update daily job results"
-            git push
+
+            # Bring in anything that changed on main while this workflow ran
+            git pull --rebase origin main
+
+            git push origin HEAD:main
           fi

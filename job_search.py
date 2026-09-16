@@ -47,6 +47,10 @@ print(df.columns.tolist())
 
 
 # Target roles
+# --------------------------------------------------
+# Filter United States + target roles
+# --------------------------------------------------
+
 target_roles = [
     r"\bdata engineer\b",
     r"\banalytics engineer\b",
@@ -58,15 +62,22 @@ target_roles = [
 
 role_pattern = "|".join(target_roles)
 
-
-# Filter target job titles
 jobs = df[
-    df["title"]
-    .fillna("")
-    .str.lower()
-    .str.contains(role_pattern, regex=True)
+    (
+        df["country"]
+        .fillna("")
+        .str.strip()
+        .str.lower()
+        .eq("united states")
+    )
+    &
+    (
+        df["title"]
+        .fillna("")
+        .str.lower()
+        .str.contains(role_pattern, regex=True)
+    )
 ].copy()
-
 
 # Remove duplicates
 jobs = jobs.drop_duplicates(
